@@ -1,0 +1,266 @@
+WITH user_ride_status AS (
+    SELECT
+        user_id
+    FROM ride_requests
+    GROUP BY user_id
+),
+-- downloads table 
+
+total_app_downloads as (
+  SELECT 
+	 app_download_key
+  FROM app_downloads
+	GROUP BY 1),
+ -- downloads table joined with signups table
+ 
+no_dowloads_before_signups as
+  (SELECT 
+  	COUNT(*) as total_downloads, 
+  	COUNT(DISTINCT s.user_id) as total_signups_from_downloads,
+   s.age_range, 
+   a.platform,
+   TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+  FROM total_app_downloads at
+  LEFT JOIN signups s
+  ON at.app_download_key = s.session_id
+   LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  
+  GROUP BY 3,4,5
+  ),
+
+-- rides_requested table 
+
+totals as (SELECT
+    COUNT(*) AS total_users_signed_up,
+    COUNT(DISTINCT urs.user_id) AS total_users_ride_requested, 
+              s.age_range, 
+          	  a.platform,
+           	TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+FROM signups s
+LEFT JOIN user_ride_status urs 
+   ON s.user_id = urs.user_id
+LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id
+          group by 3,4,5), 
+    
+-- drivers_acceptance
+
+
+t4 as (SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN accept_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS drivers_acceptance_rate, 
+  s.age_range, 
+  a.platform,
+	TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY  s.age_range, a.platform, download_ts
+   ),
+
+drivers_acceptance as (SELECT 
+COUNT(drivers_acceptance_rate) as drivers_acceptance_count,
+ age_range, platform, download_ts
+ FROM t4
+ WHERE drivers_acceptance_rate != 0
+ GROUP BY 2,3,4), 
+ 
+-- ride_ completion
+
+t5 as 
+ (SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN dropoff_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS users_completing_a_ride, 
+  s.age_range,
+  a.platform,
+  TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY  s.age_range, a.platform, download_ts
+
+   ),
+
+ride_completion as (SELECT 
+COUNT(users_completing_a_ride) as rides_completed_count ,
+ age_range, platform, download_ts
+ FROM t5
+ WHERE users_completing_a_ride != 0 
+ GROUP BY 2,3,4),
+
+
+
+
+-- payment_completion 
+t6 as 
+(
+  SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN transaction_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS payment_completion, 
+  s.age_range,
+   a.platform,
+  TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN transactions t
+         ON r.ride_id = t.ride_id
+   LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY  s.age_range, a.platform, download_ts
+  ),
+payment_completion as 
+(SELECT 
+COUNT(payment_completion) as payment_completion,
+ age_range, platform, download_ts
+ FROM t6
+ WHERE payment_completion != 0 
+ GROUP BY 2,3,4),
+
+
+-- reviews table 
+
+t7  as 
+(
+  SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN review_id IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS review_rate, 
+  s.age_range,
+ a.platform,
+ TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+  FROM ride_requests r
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN reviews re
+  ON r.ride_id = re.ride_id
+ LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY download_ts, s.age_range, a.platform
+   ),
+
+reviews as (SELECT 
+COUNT(review_rate) as user_review,
+ age_range, platform, download_ts
+ FROM t7
+ WHERE review_rate != 0 
+ GROUP BY 2,3,4),
+
+-- formation of the funnel table (funnel_t)
+funnel_t as ( SELECT
+  1 AS funnel_step,
+     'app_downloads' AS funnel_name,
+    total_downloads AS value, 
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM no_dowloads_before_signups 
+
+UNION 
+
+SELECT 
+ 
+	2 AS funnel_step,
+           	'signups' AS funnel_name,
+  total_users_signed_up AS value, 
+             age_range as age,
+             platform as platform,
+             download_ts as download_ts
+FROM totals 
+
+UNION
+
+SELECT 
+	3 AS funnel_step,
+          	'ride_requested' AS funnel_name,
+	total_users_ride_requested AS value, 
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM totals
+
+UNION
+
+SELECT 
+	4 AS funnel_step,
+              	'driver_acceptance' AS funnel_name,
+	drivers_acceptance_count AS value, 
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM drivers_acceptance
+            
+
+UNION
+
+SELECT 
+	5 AS funnel_step,
+            	'rides_completed' AS funnel_name,
+	rides_completed_count AS value,
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM ride_completion
+             
+
+UNION
+
+SELECT 
+	6 AS funnel_step,
+           	'payment_completion' AS funnel_name,
+	payment_completion AS value,
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM payment_completion
+
+
+UNION
+
+SELECT 
+	7 AS funnel_step,
+              	'user_review' AS funnel_name,
+							user_review AS value,
+             age_range as age,
+              platform as platform,
+             download_ts as download_ts
+FROM reviews
+)
+
+SELECT  
+f.funnel_step, 
+f.funnel_name, 
+f.value,   
+f.age,
+f.platform,
+f.download_ts
+
+
+FROM funnel_t f
+
+
+ORDER BY funnel_step DESC ; 
