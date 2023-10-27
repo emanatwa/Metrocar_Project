@@ -13,8 +13,8 @@ total_app_downloads as (
 	GROUP BY 1),
  -- downloads table joined with signups table
  
-no_dowloads_before_signups as
-  (SELECT 
+no_dowloads_before_signups as(
+   SELECT 
   	COUNT(*) as total_downloads, 
   	COUNT(DISTINCT s.user_id) as total_signups_from_downloads,
    s.age_range, 
@@ -31,84 +31,91 @@ no_dowloads_before_signups as
 
 -- rides_requested table 
 
-totals as (SELECT
-    COUNT(*) AS total_users_signed_up,
-    COUNT(DISTINCT urs.user_id) AS total_users_ride_requested, 
-              s.age_range, 
-          	  a.platform,
-           	TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
-FROM signups s
-LEFT JOIN user_ride_status urs 
-   ON s.user_id = urs.user_id
-LEFT JOIN app_downloads a 
-  ON a.app_download_key = s.session_id
-          group by 3,4,5), 
+totals as (
+	SELECT
+	    COUNT(*) AS total_users_signed_up,
+	    COUNT(DISTINCT urs.user_id) AS total_users_ride_requested, 
+	              s.age_range, 
+	          	  a.platform,
+	           	TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+	FROM signups s
+	LEFT JOIN user_ride_status urs 
+	   ON s.user_id = urs.user_id
+	LEFT JOIN app_downloads a 
+	  ON a.app_download_key = s.session_id
+	          group by 3,4,5
+), 
     
 -- drivers_acceptance
 
 
-t4 as (SELECT
-    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
-    COUNT(DISTINCT
-        CASE
-            WHEN accept_ts IS NOT NULL
-            THEN r.user_id
-        END
-    ) AS drivers_acceptance_rate, 
-  s.age_range, 
-  a.platform,
-	TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
-FROM ride_requests r 
-  LEFT JOIN signups s
-	ON s.user_id = r.user_id
-LEFT JOIN app_downloads a 
-  ON a.app_download_key = s.session_id                      
-  GROUP BY  s.age_range, a.platform, download_ts
+t4 as (
+	SELECT
+	    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+	    COUNT(DISTINCT
+	        CASE
+	            WHEN accept_ts IS NOT NULL
+	            THEN r.user_id
+	        END
+	    ) AS drivers_acceptance_rate, 
+	  s.age_range, 
+	  a.platform,
+		TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+	FROM ride_requests r 
+	  LEFT JOIN signups s
+		ON s.user_id = r.user_id
+	LEFT JOIN app_downloads a 
+	  ON a.app_download_key = s.session_id                      
+	  GROUP BY  s.age_range, a.platform, download_ts
    ),
 
-drivers_acceptance as (SELECT 
-COUNT(drivers_acceptance_rate) as drivers_acceptance_count,
- age_range, platform, download_ts
- FROM t4
- WHERE drivers_acceptance_rate != 0
- GROUP BY 2,3,4), 
+drivers_acceptance as (
+	SELECT 
+	COUNT(drivers_acceptance_rate) as drivers_acceptance_count,
+	 age_range, platform, download_ts
+	 FROM t4
+	 WHERE drivers_acceptance_rate != 0
+	 GROUP BY 2,3,4
+), 
  
 -- ride_ completion
 
 t5 as 
- (SELECT
-    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
-    COUNT(DISTINCT
-        CASE
-            WHEN dropoff_ts IS NOT NULL
-            THEN r.user_id
-        END
-    ) AS users_completing_a_ride, 
-  s.age_range,
-  a.platform,
-  TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
-FROM ride_requests r 
-  LEFT JOIN signups s
-	ON s.user_id = r.user_id
-  LEFT JOIN app_downloads a 
-  ON a.app_download_key = s.session_id                      
-  GROUP BY  s.age_range, a.platform, download_ts
+ (
+	SELECT
+	    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+	    COUNT(DISTINCT
+	        CASE
+	            WHEN dropoff_ts IS NOT NULL
+	            THEN r.user_id
+	        END
+	    ) AS users_completing_a_ride, 
+	  s.age_range,
+	  a.platform,
+	  TO_CHAR( a.download_ts ::timestamp, 'YYYY/MM/DD') AS download_ts
+	FROM ride_requests r 
+	  LEFT JOIN signups s
+		ON s.user_id = r.user_id
+	  LEFT JOIN app_downloads a 
+	  ON a.app_download_key = s.session_id                      
+	  GROUP BY  s.age_range, a.platform, download_ts
 
    ),
 
-ride_completion as (SELECT 
-COUNT(users_completing_a_ride) as rides_completed_count ,
- age_range, platform, download_ts
- FROM t5
- WHERE users_completing_a_ride != 0 
- GROUP BY 2,3,4),
+ride_completion as (
+	SELECT 
+	COUNT(users_completing_a_ride) as rides_completed_count ,
+	 age_range, platform, download_ts
+	 FROM t5
+	 WHERE users_completing_a_ride != 0 
+	 GROUP BY 2,3,4
+),
 
 
 
 
 -- payment_completion 
-t6 as 
-(
+t6 as (
   SELECT
     COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
     COUNT(DISTINCT
@@ -130,18 +137,19 @@ FROM ride_requests r
   GROUP BY  s.age_range, a.platform, download_ts
   ),
 payment_completion as 
-(SELECT 
-COUNT(payment_completion) as payment_completion,
- age_range, platform, download_ts
- FROM t6
- WHERE payment_completion != 0 
- GROUP BY 2,3,4),
+(
+	SELECT 
+	COUNT(payment_completion) as payment_completion,
+	 age_range, platform, download_ts
+	 FROM t6
+	 WHERE payment_completion != 0 
+	 GROUP BY 2,3,4
+),
 
 
 -- reviews table 
 
-t7  as 
-(
+t7  as (
   SELECT
     COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
     COUNT(DISTINCT
@@ -163,7 +171,8 @@ t7  as
   GROUP BY download_ts, s.age_range, a.platform
    ),
 
-reviews as (SELECT 
+reviews as (
+SELECT 
 COUNT(review_rate) as user_review,
  age_range, platform, download_ts
  FROM t7
