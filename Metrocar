@@ -10,7 +10,8 @@ total_app_downloads as (
   SELECT 
 	 app_download_key
   FROM app_downloads
-	GROUP BY 1),
+	GROUP BY 1
+),
  -- downloads table joined with signups table
  
 no_dowloads_before_signups as(
