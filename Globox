@@ -1,0 +1,27 @@
+WITH cte_users_with_purchases AS (
+  SELECT 
+    u.id AS uid,
+    a.dt AS dt,
+    u.gender AS gender,
+    u.country AS country,
+    g.device AS device_type, 
+    COALESCE(a.spent, 0.0) AS spent,
+    g.group AS ab_group
+  FROM
+    users u
+  LEFT JOIN
+    activity a ON u.id = a.uid
+  LEFT JOIN
+    groups g ON u.id = g.uid
+)
+
+SELECT 
+  uid,
+  ab_group,
+  gender,
+  country,
+  device_type,
+  SUM(spent) AS total_spend,
+  CASE WHEN SUM(spent) > 0 THEN 1 ELSE 0 END AS converted
+FROM cte_users_with_purchases
+GROUP BY uid, ab_group, gender, country, device_type;
