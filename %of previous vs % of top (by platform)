@@ -1,0 +1,265 @@
+WITH 
+-- downloads table 
+total_app_downloads as (
+  SELECT 
+	 app_download_key
+  FROM app_downloads
+	),
+ -- downloads table joined with signups table
+no_dowloads_before_signups as (
+    SELECT 
+  	COUNT(*) as total_downloads, 
+   
+   a.platform
+  FROM total_app_downloads at
+  LEFT JOIN signups s
+  ON at.app_download_key = s.session_id
+   LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  
+  GROUP BY 2
+  ),
+
+-- rides_requested table 
+user_ride_status AS (
+    SELECT
+        user_id
+    FROM ride_requests
+    GROUP BY user_id
+),
+
+totals as (
+  SELECT
+    COUNT(*) AS total_users_signed_up,
+    COUNT(DISTINCT urs.user_id) AS total_users_ride_requested, 
+           
+          	  a.platform
+FROM signups s
+LEFT JOIN user_ride_status urs 
+   ON s.user_id = urs.user_id
+LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id
+          group by 3
+), 
+    
+-- drivers_acceptance
+
+t4 as (
+  SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN accept_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS drivers_acceptance_rate, 
+
+  a.platform
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY   a.platform
+),
+
+drivers_acceptance as (
+  SELECT 
+drivers_acceptance_rate as drivers_acceptance_count,
+  platform
+ FROM t4
+ WHERE drivers_acceptance_rate != 0
+ 
+), 
+ 
+-- ride_ completion
+
+t5 as (
+   SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN dropoff_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS users_completing_a_ride, 
+  a.platform
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY   a.platform
+
+ ),
+
+ride_completion as (
+  SELECT 
+users_completing_a_ride as rides_completed_count ,
+  platform
+ FROM t5
+ WHERE users_completing_a_ride != 0 
+ 
+),
+
+
+
+
+-- payment_completion 
+t6 as (
+  SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN transaction_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS payment_completion, 
+   a.platform
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN transactions t
+         ON r.ride_id = t.ride_id
+   LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY   a.platform
+),
+payment_completion as (
+  SELECT 
+payment_completion as payment_completion,
+ platform
+ FROM t6
+ WHERE payment_completion != 0 
+ 
+),
+
+
+-- reviews table 
+
+t7  as (
+  SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN review_id IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS review_rate, 
+
+ a.platform
+  FROM ride_requests r
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN reviews re
+  ON r.ride_id = re.ride_id
+ LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY a.platform
+),
+
+reviews as (
+  SELECT 
+review_rate as user_review,
+platform
+ FROM t7
+ WHERE review_rate != 0 
+
+),
+
+-- formation of the funnel table (funnel_t)
+funnel_t as ( 
+  SELECT
+  1 AS funnel_step,
+     'app_downloads' AS funnel_name,
+    total_downloads AS value, 
+             
+              platform as platform
+             
+FROM no_dowloads_before_signups 
+
+UNION 
+
+SELECT 
+ 
+	2 AS funnel_step,
+           	'signups' AS funnel_name,
+  total_users_signed_up AS value, 
+           
+             platform as platform
+            
+FROM totals 
+
+UNION
+
+SELECT 
+	3 AS funnel_step,
+          	'ride_requested' AS funnel_name,
+	total_users_ride_requested AS value, 
+            
+              platform as platform
+             
+FROM totals
+
+UNION
+
+SELECT 
+	4 AS funnel_step,
+              	'driver_acceptance' AS funnel_name,
+	drivers_acceptance_count AS value, 
+             
+              platform as platform
+             
+FROM drivers_acceptance
+            
+
+UNION
+
+SELECT 
+	5 AS funnel_step,
+            	'rides_completed' AS funnel_name,
+	rides_completed_count AS value,
+             
+              platform as platform
+            
+FROM ride_completion
+             
+
+UNION
+
+SELECT 
+	6 AS funnel_step,
+           	'payment_completion' AS funnel_name,
+	payment_completion AS value,
+            
+              platform as platform
+            
+FROM payment_completion
+
+
+UNION
+
+SELECT 
+	7 AS funnel_step,
+              	'user_review' AS funnel_name,
+							user_review AS value,
+              platform as platform
+FROM reviews
+)
+
+SELECT  
+f.funnel_step, 
+f.funnel_name, 
+f.value,   
+f.platform,
+value::float / LAG(value) OVER (
+        ORDER BY funnel_step
+    ) AS percent_of_previous,
+    
+   value::float / FIRST_VALUE(value) OVER (
+        ORDER BY funnel_step
+    ) as percent_of_top
+
+
+FROM funnel_t f
+ORDER BY funnel_step DESC ; 
