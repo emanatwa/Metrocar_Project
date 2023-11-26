@@ -1,0 +1,8 @@
+  SELECT
+      rating,
+      COUNT(*) AS downloads,
+      SUM(COUNT(*)) OVER () AS total_reviews,
+      COUNT(*)::float /
+          SUM(COUNT(*)) OVER () AS pct_of_reviews
+  FROM reviews
+  GROUP BY rating
