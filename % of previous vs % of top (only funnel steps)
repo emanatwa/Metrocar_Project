@@ -1,0 +1,149 @@
+WITH user_ride_status AS (
+    SELECT
+        user_id
+    FROM ride_requests
+    GROUP BY user_id
+),
+-- downloads table 
+
+total_app_downloads as (
+  SELECT 
+	 app_download_key
+  FROM app_downloads
+	GROUP BY 1),
+ -- downloads table joined with signups table
+ 
+no_dowloads_before_signups as
+  (SELECT 
+  	COUNT(*) as total_downloads, 
+  	COUNT(DISTINCT s.user_id) as total_signups_from_downloads
+  FROM total_app_downloads a
+  LEFT JOIN signups s
+  ON a.app_download_key = s.session_id),
+
+-- rides_requested table 
+
+totals as (SELECT
+    COUNT(*) AS total_users_signed_up,
+    COUNT(DISTINCT urs.user_id) AS total_users_ride_requested
+FROM signups s
+LEFT JOIN user_ride_status urs ON
+    s.user_id = urs.user_id), 
+    
+-- drivers_acceptance
+
+
+drivers_acceptance as (SELECT
+    user_id,
+    COUNT(DISTINCT user_id)::float / COUNT(accept_ts)   as drivers_acceptance_rate
+  FROM ride_requests 
+  WHERE accept_ts IS NOT NULL
+  GROUP BY user_id
+   ),
+
+-- ride_ completion
+
+ride_completion as 
+ (SELECT
+    user_id,
+    COUNT(DISTINCT user_id)::float / COUNT(dropoff_ts)   as ride_completion
+  FROM ride_requests 
+  WHERE dropoff_ts IS NOT NULL
+  GROUP BY user_id
+   ),
+
+
+
+-- payment_completion 
+payment_completion as 
+  (SELECT
+    user_id,
+    COUNT(DISTINCT user_id)::float / COUNT(transaction_ts)   as payment_completion
+  FROM ride_requests r
+  LEFT JOIN transactions t
+         ON r.ride_id = t.ride_id
+  WHERE transaction_ts IS NOT NULL
+  GROUP BY user_id
+   ),
+
+reviews as 
+(SELECT
+    r.user_id,
+    COUNT(DISTINCT r.user_id)::float / COUNT(re.review_id)   as review_rate
+  FROM ride_requests r
+  LEFT JOIN reviews re
+  ON r.ride_id = re.ride_id
+  WHERE re.review_id != 0 
+  GROUP BY r.user_id
+   ),
+
+    
+funnel_stages as (SELECT
+  1 AS funnel_step,
+    'app_downloads' AS funnel_name,
+    total_downloads AS value 
+FROM no_dowloads_before_signups 
+
+UNION 
+
+SELECT 
+ 
+	2 AS funnel_step,
+	'signups' AS funnel_name,
+  total_users_signed_up AS value 
+FROM totals 
+
+UNION
+
+SELECT 
+	3 AS funnel_step,
+	'ride_requested' AS funnel_name,
+	total_users_ride_requested AS value 
+FROM totals
+
+UNION
+
+SELECT 
+	4 AS funnel_step,
+	'driver_acceptance' AS funnel_name,
+	COUNT(drivers_acceptance_rate) AS value 
+FROM drivers_acceptance
+
+UNION
+
+SELECT 
+	5 AS funnel_step,
+	'rides_completed' AS funnel_name,
+	COUNT(ride_completion) AS value 
+FROM ride_completion
+
+UNION
+
+SELECT 
+	6 AS funnel_step,
+	'payment_completion' AS funnel_name,
+	COUNT(payment_completion) AS value 
+FROM payment_completion
+
+
+UNION
+
+SELECT 
+	7 AS funnel_step,
+	'user_review' AS funnel_name,
+	COUNT(review_rate) AS value 
+FROM reviews) 
+
+SELECT *,
+    value::float / LAG(value) OVER (
+        ORDER BY funnel_step
+    ) AS percent_of_previous,
+    
+   value::float / FIRST_VALUE(value) OVER (
+        ORDER BY funnel_step
+    ) as percent_of_top
+    
+FROM funnel_stages
+
+
+ORDER BY funnel_step;
