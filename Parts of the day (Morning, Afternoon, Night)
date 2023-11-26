@@ -1,0 +1,37 @@
+WITH 
+t5 as 
+ (SELECT
+    COUNT(DISTINCT r.user_id) AS users_requesting_a_ride,
+    COUNT(DISTINCT
+        CASE
+            WHEN dropoff_ts IS NOT NULL
+            THEN r.user_id
+        END
+    ) AS users_completing_a_ride, 
+  s.age_range,
+  a.platform,
+ CASE
+        WHEN EXTRACT(HOUR FROM download_ts) >= 01 AND EXTRACT(HOUR FROM download_ts) <= 11 THEN 'Morning' 
+        WHEN EXTRACT(HOUR FROM download_ts) >= 12 AND EXTRACT(HOUR FROM download_ts) <= 16 THEN 'Afternoon'
+        ELSE 'Night'
+    END AS  time_of_the_day,
+   TO_CHAR( a.download_ts::timestamp, 'YYYY/MM/DD') AS download_ts
+FROM ride_requests r 
+  LEFT JOIN signups s
+	ON s.user_id = r.user_id
+  LEFT JOIN app_downloads a 
+  ON a.app_download_key = s.session_id                      
+  GROUP BY  s.age_range, a.platform, download_ts
+
+   ), 
+   RD_COMP AS ( SELECT 
+COUNT(users_completing_a_ride) as rides_completed_count,
+ age_range, platform, time_of_the_day, download_ts
+ FROM t5
+ WHERE users_completing_a_ride != 0 
+ GROUP BY 2,3,4,5 
+ ORDER BY download_ts)
+
+SELECT Sum(rides_completed_count ), time_of_the_day
+FROM RD_COMP
+GROUP BY 2
